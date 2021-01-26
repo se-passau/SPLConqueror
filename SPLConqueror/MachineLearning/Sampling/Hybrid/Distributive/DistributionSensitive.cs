@@ -7,6 +7,7 @@ using SPLConqueror_Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Diagnostics;
 
 namespace MachineLearning.Sampling.Hybrid.Distributive
 {
@@ -250,8 +251,12 @@ namespace MachineLearning.Sampling.Hybrid.Distributive
                 ((RandomSelection)selection).setDistribution(wholeDistribution);
             }
 
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
             this.selectedConfigurations = selection
                 .SampleFromDistribution(wantedDistribution, allBuckets, count, GetOptimization());
+            stopwatch.Stop();
+            Console.WriteLine("ConfigurationSampling done in {0} ms", stopwatch.ElapsedMilliseconds);
         }
 
         /// <summary>

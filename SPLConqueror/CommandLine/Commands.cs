@@ -49,6 +49,7 @@ namespace CommandLine
         public const string COMMAND_SAMPLE_BINARY_TWISE = "twise";
         public const string COMMAND_SAMPLE_BINARY_SAT = "satoutput";
         public const string COMMAND_SAMPLE_BINARY_DISTANCE = "distance-based";
+        public const string COMMAND_SAMPLE_BINARY_GRAMMAR = "grammar-based";
 
         #region splconqueror learn with all measurements
 
@@ -75,6 +76,8 @@ namespace CommandLine
         public const string COMMAND_SET_NFP = "nfp";
         public const string COMMAND_SET_MLSETTING = "mlsettings";
         public const string COMMAND_SET_SOLVER = "solver";
+
+        public const string COMMAND_SET_SAMPLE_SET = "setsampleset";
 
         #region splconqueror learn with sampling
         public const string COMMAND_START_LEARNING_SPL_CONQUEROR = "learn-splconqueror";
@@ -118,6 +121,8 @@ namespace CommandLine
         // shouldnt be used by user.
         public const string ROLLBACK_FLAG = "rollback";
         #endregion
+
+        private List<Configuration> SampleSet;
 
         public List<SamplingStrategies> BinaryToSample
         {
@@ -273,9 +278,27 @@ namespace CommandLine
                     // A file may contain multiple models
                     StreamReader modelReader = new StreamReader(filePaths[0].Trim());
                     List<string> models = new List<string>();
-                    while (!modelReader.EndOfStream)
+                    if (Path.GetExtension(filePaths[0]) == ".log" || 
+                        Path.GetExtension(filePaths[0]) == ".log_wrong_result")
                     {
-                        models.Add(modelReader.ReadLine());
+                        // If it is a log file, recover the last performance model and use it for learning
+                        string lastPerformanceModel = "";
+                        while (!modelReader.EndOfStream)
+                        {
+                            string currentLine = modelReader.ReadLine();
+                            if (currentLine.Contains(";") && !currentLine.Contains(";;"))
+                            {
+                                lastPerformanceModel = currentLine.Split(';')[1];
+                            }
+                        }
+                        models.Add(lastPerformanceModel);
+                    }
+                    else
+                    {
+                        while (!modelReader.EndOfStream)
+                        {
+                            models.Add(modelReader.ReadLine());
+                        }
                     }
                     modelReader.Close();
 
@@ -311,6 +334,9 @@ namespace CommandLine
                         }
                         else
                         {
+                            // Compute the error rate and return the error rate.
+                            double error = fSS.computeError(currentModel, GlobalState.allMeasurements.Configurations, false);
+                            GlobalState.logInfo.logLine("Error: " + error);
                             GlobalState.logInfo.logLine("As no path is given, no predictions are written into a file.");
                         }
                     }
@@ -366,6 +392,9 @@ namespace CommandLine
                     break;
                 case COMMAND_CLEAR_LEARNING:
                     cleanLearning();
+                    break;
+                case COMMAND_SET_SAMPLE_SET:
+                    SetSampleSet(task.Trim());
                     break;
                 case COMMAND_LOAD_CONFIGURATIONS:
                     GlobalState.allMeasurements.setBlackList(mlSettings.blacklisted);
@@ -574,7 +603,20 @@ namespace CommandLine
                 case COMMAND_VARIABILITYMODEL:
                     String debug = Directory.GetCurrentDirectory();
                     GlobalState.vmSource = task.TrimEnd();
-                    GlobalState.varModel = VariabilityModel.loadFromXML(task.Trim());
+
+                    // Switch between file endings. Currently supported: xml (SPL Conqueror format), sxfm, and dimacs
+                    switch (Path.GetExtension(GlobalState.vmSource).ToLower()) {
+                        case ".sxfm":
+                            GlobalState.varModel = VariabilityModel.loadFromSXFM(task.Trim());
+                            break;
+                        case ".dimacs":
+                            GlobalState.varModel = VariabilityModel.loadFromDimacs(task.Trim());
+                            break;
+                        default:
+                            GlobalState.varModel = VariabilityModel.loadFromXML(task.Trim());
+                            break;
+                    }
+
                     if (GlobalState.varModel == null)
                     {
                         GlobalState.logError.logLine("No variability model found at " + task);
@@ -661,9 +703,10 @@ namespace CommandLine
                 case DEFINE_PYTHON_PATH:
                     {
                         // Append a slash if it is not included
-                        if (!taskAsParameter[0].EndsWith("/") && !taskAsParameter[0].EndsWith("\\"))
+                        // Note that Windows also allows the usage of other slashes.
+                        if (!taskAsParameter[0].EndsWith("/") && !taskAsParameter[0].EndsWith(Path.DirectorySeparatorChar.ToString()))
                         {
-                            PythonWrapper.PYTHON_PATH = taskAsParameter[0] + "/";
+                            PythonWrapper.PYTHON_PATH = taskAsParameter[0] + Path.DirectorySeparatorChar;
                         }
                         else
                         {
@@ -742,7 +785,7 @@ namespace CommandLine
                     }
 
                 case COMMAND_START_LEARNING_SPL_CONQUEROR:
-                    if (allMeasurementsSelected)
+                    if (allMeasurementsSelected && this.SampleSet == null)
                     {
                         learnWithAllMeasurements();
                     }
@@ -817,13 +860,6 @@ namespace CommandLine
                         string samplingIdentifier = "PreVal_SPLCon_" + GlobalState.varModel.Name + "_" + createSmallerSamplingIdentifier() + ".csv";
 
                         printPredictedConfigurations(samplingIdentifier, experiment);
-
-                        //printPredictedConfigurations("./CrossValidationResultPrediction"
-                        //    + taskAsString.ToString()
-                        //    .Replace(" ", "-").Replace(":", "=").Replace("[", "").Replace("]", "")
-                        //    .Replace(Environment.NewLine, "").Substring(0)
-                        //    + ".csv", experiment);
-
                         break;
                     }
 
@@ -876,8 +912,11 @@ namespace CommandLine
             {
                 foreach (string opt in parameters)
                 {
-                    if (opt.StartsWith(param.Split(new char[] { '=' })[0]))
+                    if (opt.StartsWith(param.Split(new char[] {'='})[0].Replace("_", "-")))
+                    {
                         sb.Append(opt + ";");
+                        break;
+                    }
                 }
             }
             return sb.ToString();
@@ -918,6 +957,21 @@ namespace CommandLine
 
         }
 
+        private void SetSampleSet(String filePathToSampleSet)
+        {
+            if (GlobalState.varModel == null)
+            {
+                GlobalState.logError.logLine("Please read in the variability model before reading in the sample set!");
+                return;
+            }
+            if (!File.Exists(filePathToSampleSet))
+            {
+                GlobalState.logError.logLine("The file " + filePathToSampleSet + " does not exist.");
+                return;
+            }
+            this.SampleSet = ConfigurationReader.readConfigurations_Header_CSV(filePathToSampleSet, GlobalState.varModel);
+        }
+
         private void cleanGlobal()
         {
             SPLConqueror_Core.GlobalState.clear();
@@ -928,6 +982,7 @@ namespace CommandLine
 
         private void cleanSampling()
         {
+            this.SampleSet = null;
             this.allMeasurementsSelected = false;
             exp.clearSampling();
             binaryToSample.Clear();
@@ -1051,7 +1106,7 @@ namespace CommandLine
                 printNFPsToFile(configurationsLearning, nfpLearnFile);
                 printNFPsToFile(GlobalState.allMeasurements.Configurations, nfpValFile);
                 PythonWrapper pyInterpreter = new PythonWrapper(this.getLocationPythonScript() +
-                    Path.DirectorySeparatorChar + PythonWrapper.COMMUNICATION_SCRIPT, taskAsParameter);
+                    PythonWrapper.COMMUNICATION_SCRIPT, taskAsParameter);
                 GlobalState.logInfo.logLine("Starting Prediction");
 
                 if (isParamTuning)
@@ -1066,7 +1121,7 @@ namespace CommandLine
                     File.Delete(configsValFile);
                     File.Delete(nfpLearnFile);
                     File.Delete(nfpValFile);
-                    var optimalParameters = pyResult.Replace(",", "").Split(new char[] { ';' },
+                    List<string> optimalParameters = pyResult.Replace(",", "").Split(new char[] { ';' },
                         StringSplitOptions.RemoveEmptyEntries).ToList();
                     optimalParameters.Insert(0, taskAsParameter[0]);
                     handlePythonTask(false, configurationsLearning, optimalParameters.ToArray());
@@ -1141,7 +1196,12 @@ namespace CommandLine
             List<Configuration> configurationsLearning = new List<Configuration>();
             List<Configuration> configurationsValidation = new List<Configuration>();
 
-            if (isAllMeasurementsToSample() && allMeasurementsValid() && (mlSettings.blacklisted == null || mlSettings.blacklisted.Count == 0))
+            if (this.SampleSet != null)
+            {
+                List<Configuration> measuredConfigurations = GlobalState.getMeasuredConfigs(this.SampleSet);
+                configurationsLearning = measuredConfigurations;
+            }
+            else if (isAllMeasurementsToSample() && allMeasurementsValid() && (mlSettings.blacklisted == null || mlSettings.blacklisted.Count == 0))
             {
                 measurementsValid = true;
                 configurationsLearning = GlobalState.allMeasurements.Configurations;
@@ -1350,7 +1410,11 @@ namespace CommandLine
                     break;
                 case COMMAND_SAMPLE_BINARY_DISTANCE:
                     addBinarySamplingDomain(SamplingStrategies.DISTANCE_BASED, optionsToConsider);
-                    addBinSamplingParams(SamplingStrategies.DISTANCE_BASED, "DIST_BASE", parameterKeyAndValue, isValidation);
+                    addBinSamplingParams(SamplingStrategies.DISTANCE_BASED, "DISTANCE_BASE", parameterKeyAndValue, isValidation);
+                    break;
+                case COMMAND_SAMPLE_BINARY_GRAMMAR:
+                    addBinarySamplingDomain(SamplingStrategies.GRAMMAR_BASED, optionsToConsider);
+                    addBinSamplingParams(SamplingStrategies.GRAMMAR_BASED, "GRAMMAR_BASE", parameterKeyAndValue, isValidation);
                     break;
                 //TODO:hybrid as bin/num
                 //case COMMAND_HYBRID_DISTRIBUTION_AWARE:
@@ -1451,6 +1515,9 @@ namespace CommandLine
                     break;
                 case SamplingStrategies.DISTANCE_BASED:
                     ConfigurationBuilder.binaryParams.distanceMaxParameters.Add(parameter);
+                    break;
+                case SamplingStrategies.GRAMMAR_BASED:
+                    ConfigurationBuilder.binaryParams.grammarParameters.Add(parameter);
                     break;
             }
 
@@ -1621,7 +1688,11 @@ namespace CommandLine
         private void learnWithSampling()
         {
             InfluenceModel infMod = new InfluenceModel(GlobalState.varModel, GlobalState.currentNFP);
-            Tuple<List<Configuration>, List<Configuration>> learnAndValidation = buildSetsEfficient();
+
+            Tuple<List<Configuration>, List<Configuration>> learnAndValidation;
+
+            learnAndValidation = buildSetsEfficient();            
+
             List<Configuration> configurationsLearning;
             List<Configuration> configurationsValidation;
             if (!configurationsPreparedForLearning(learnAndValidation,

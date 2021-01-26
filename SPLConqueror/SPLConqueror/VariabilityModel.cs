@@ -640,12 +640,20 @@ namespace SPLConqueror_Core
             int previousDepth = 0;
             int groupCounter = 0;
             BinaryOption previousOption = null;
-            string cardinality = null;
-            List<BinaryOption> optionsInGroup = null;
+            Dictionary<int, List<BinaryOption>> optionsInGroups = new Dictionary<int, List<BinaryOption>>();
+            Dictionary<int, string> cardinalitiesInGroups = new Dictionary<int, string>();
+
             foreach (string feature in features)
             {
                 int currentDepth = getDepth(feature);
                 string[] information = splitWhiteSpaces(feature);
+
+                if (previousDepth - currentDepth == 1 && optionsInGroups.ContainsKey(currentDepth))
+                {
+                    resolveGroup(optionsInGroups[currentDepth], cardinalitiesInGroups[currentDepth]);
+                    optionsInGroups.Remove(currentDepth);
+                    cardinalitiesInGroups.Remove(currentDepth);
+                }
 
                 if (feature.Contains(":r"))
                 {
@@ -677,10 +685,7 @@ namespace SPLConqueror_Core
                 }
                 else if (feature.Contains(":g"))
                 {
-                    if (optionsInGroup != null && optionsInGroup.Count > 0)
-                        resolveGroup(optionsInGroup, cardinality);
-
-                    optionsInGroup = null;
+                    optionsInGroups[currentDepth] = new List<BinaryOption>();
 
                     int offset = 0;
                     if (information[1].Contains("["))
@@ -702,6 +707,8 @@ namespace SPLConqueror_Core
                     groupParent.Optional = false;
                     this.binaryOptions.Add(groupParent);
 
+                    string cardinality = null;
+
                     if (information[0].Contains("["))
                     {
                         cardinality = information[0].Split(new string[] { ":g" }, StringSplitOptions.None)[1];
@@ -712,6 +719,7 @@ namespace SPLConqueror_Core
                     {
                         cardinality = information[3];
                     }
+                    cardinalitiesInGroups[currentDepth] = cardinality;
 
                     setParent(groupParent, previousOption, currentDepth, previousDepth);
 
@@ -719,9 +727,6 @@ namespace SPLConqueror_Core
                 }
                 else if (feature.Contains(":"))
                 {
-                    if (optionsInGroup == null)
-                        optionsInGroup = new List<BinaryOption>();
-
                     BinaryOption mandatory = new BinaryOption(this, information[2]);
                     mandatory.Optional = false;
                     mandatory.OutputString = information[1];
@@ -729,14 +734,17 @@ namespace SPLConqueror_Core
 
                     setParent(mandatory, previousOption, currentDepth, previousDepth);
 
-                    optionsInGroup.Add(mandatory);
+                    optionsInGroups[currentDepth - 1].Add(mandatory);
                     previousOption = mandatory;
                 }
 
                 previousDepth = currentDepth;
             }
-            if (optionsInGroup != null && optionsInGroup.Count > 0)
-                resolveGroup(optionsInGroup, cardinality);
+            
+            foreach (int key in optionsInGroups.Keys)
+            {
+                resolveGroup(optionsInGroups[key], cardinalitiesInGroups[key]);
+            }
         }
 
         private void resolveGroup(List<BinaryOption> group, string cardinality)

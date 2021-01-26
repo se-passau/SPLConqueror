@@ -90,8 +90,8 @@ namespace ProcessWrapper
             {
                 if (!python.StandardError.EndOfStream)
                 {
-                    GlobalState.logError.logLine("Python error/warning:");
-                    GlobalState.logError.logLine(python.StandardError.ReadToEnd());
+                    //GlobalState.logError.logLine("Python error/warning:");
+                    //GlobalState.logError.logLine(python.StandardError.ReadToEnd());
                 }
             }
         }

@@ -65,6 +65,7 @@
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Data" />
     <Reference Include="System.Xml" />
+    <Reference Include="System.Numerics" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BinaryOption.cs" />
@@ -88,6 +89,9 @@
     <Compile Include="NFProperty.cs" />
     <Compile Include="ResultDB.cs" />
     <Compile Include="NumericValues.cs" />
+    <Compile Include="FMTree.cs" />
+    <Compile Include="FMNode.cs" />
+    <Compile Include="Grammar.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

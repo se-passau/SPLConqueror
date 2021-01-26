@@ -40,7 +40,7 @@ namespace MachineLearning.Sampling.Heuristics
                         optionalFirstLevelElements.Add(binOpt);
                 }
             }
-            Solver.CheckConfigSAT checkSAT = new Solver.CheckConfigSAT();
+            Solver.ICheckConfigSAT checkSAT = new Solver.CheckConfigSATZ3();
             //Generating new configurations: one per option
             if (checkSAT.checkConfigurationSAT(firstLevelMandatoryFeatures, vm, false))
                 this.configurations.Add(firstLevelMandatoryFeatures);
